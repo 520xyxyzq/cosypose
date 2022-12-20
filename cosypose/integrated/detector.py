@@ -11,20 +11,17 @@ class Detector:
         self.model = model
         self.config = model.config
         self.category_id_to_label = {v: k for k, v in self.config.label_to_category_id.items()}
-
-    def cast(self, obj):
-        return obj.cuda()
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     @torch.no_grad()
     def get_detections(self, images, detection_th=None,
                        output_masks=False, mask_th=0.8,
                        one_instance_per_class=False):
-        images = self.cast(images).float()
+        images = images.to(self.device).float()
         if images.shape[-1] == 3:
             images = images.permute(0, 3, 1, 2)
         if images.max() > 1:
             images = images / 255.
-            images = images.float().cuda()
         outputs_ = self.model([image_n for image_n in images])
 
         infos = []
@@ -46,12 +43,12 @@ class Detector:
                 infos.append(info)
 
         if len(bboxes) > 0:
-            bboxes = torch.stack(bboxes).cuda().float()
-            masks = torch.stack(masks).cuda()
+            bboxes = torch.stack(bboxes).to(self.device).float()
+            masks = torch.stack(masks).to(self.device)
         else:
             infos = dict(score=[], label=[], batch_im_id=[])
-            bboxes = torch.empty(0, 4).cuda().float()
-            masks = torch.empty(0, images.shape[1], images.shape[2], dtype=torch.bool).cuda()
+            bboxes = torch.empty(0, 4).to(self.device).float()
+            masks = torch.empty(0, images.shape[1], images.shape[2], dtype=torch.bool).to(self.device)
 
         outputs = tc.PandasTensorCollection(
             infos=pd.DataFrame(infos),

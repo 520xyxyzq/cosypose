@@ -6,15 +6,16 @@ from cosypose.lib3d.transform_ops import invert_T
 from .bullet_scene_renderer import BulletSceneRenderer
 
 
-def init_renderer(urdf_ds, preload=True):
+def init_renderer(urdf_ds, preload=True, gpu_renderer=True):
     renderer = BulletSceneRenderer(urdf_ds=urdf_ds,
                                    preload_cache=preload,
-                                   background_color=(0, 0, 0))
+                                   background_color=(0, 0, 0),
+                                   gpu_renderer=gpu_renderer)
     return renderer
 
 
-def worker_loop(worker_id, in_queue, out_queue, object_set, preload=True):
-    renderer = init_renderer(object_set, preload=preload)
+def worker_loop(worker_id, in_queue, out_queue, object_set, preload=True, gpu_renderer=True):
+    renderer = init_renderer(object_set, preload=preload, gpu_renderer=gpu_renderer)
     while True:
         kwargs = in_queue.get()
         if kwargs is None:
@@ -38,10 +39,11 @@ def worker_loop(worker_id, in_queue, out_queue, object_set, preload=True):
 
 
 class BulletBatchRenderer:
-    def __init__(self, object_set, n_workers=8, preload_cache=True):
+    def __init__(self, object_set, n_workers=8, preload_cache=True, gpu_renderer=True):
         self.object_set = object_set
         self.n_workers = n_workers
-        self.init_plotters(preload_cache)
+        self.init_plotters(preload_cache, gpu_renderer)
+        self.gpu_renderer = gpu_renderer
 
     def render(self, obj_infos, TCO, K, resolution=(240, 320), render_depth=False):
         TCO = torch.as_tensor(TCO).detach()
@@ -79,17 +81,23 @@ class BulletBatchRenderer:
             images[data_id] = im[0]
             if render_depth:
                 depths[data_id] = depth[0]
-        images = torch.as_tensor(np.stack(images, axis=0)).pin_memory().cuda(non_blocking=True)
+        if self.gpu_renderer:
+            images = torch.as_tensor(np.stack(images, axis=0)).pin_memory().cuda(non_blocking=True)
+        else:
+            images = torch.as_tensor(np.stack(images, axis=0))
         images = images.float().permute(0, 3, 1, 2) / 255
 
         if render_depth:
-            depths = torch.as_tensor(np.stack(depths, axis=0)).pin_memory().cuda(non_blocking=True)
+            if self.gpu_renderer:
+                depths = torch.as_tensor(np.stack(depths, axis=0)).pin_memory().cuda(non_blocking=True)
+            else:
+                depths = torch.as_tensor(np.stack(depths, axis=0))
             depths = depths.float()
             return images, depths
         else:
             return images
 
-    def init_plotters(self, preload_cache):
+    def init_plotters(self, preload_cache, gpu_renderer):
         self.plotters = []
         self.in_queue = multiprocessing.Queue()
         self.out_queue = multiprocessing.Queue()
@@ -100,12 +108,13 @@ class BulletBatchRenderer:
                                                   kwargs=dict(worker_id=n,
                                                               in_queue=self.in_queue,
                                                               out_queue=self.out_queue,
+                                                              object_set=self.object_set,
                                                               preload=preload_cache,
-                                                              object_set=self.object_set))
+                                                              gpu_renderer=gpu_renderer))
                 plotter.start()
                 self.plotters.append(plotter)
         else:
-            self.plotters = [init_renderer(self.object_set, preload_cache)]
+            self.plotters = [init_renderer(self.object_set, preload_cache, gpu_renderer)]
 
     def stop(self):
         if self.n_workers > 0:
