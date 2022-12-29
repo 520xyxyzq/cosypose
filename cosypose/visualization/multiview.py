@@ -48,7 +48,7 @@ def nms3d(preds, th=0.04, poses_attr='poses'):
 
     new_preds = preds.clone()
     new_preds.infos = TCO_infos
-    new_preds.poses = torch.as_tensor(TCO)
+    setattr(new_preds, poses_attr, torch.as_tensor(TCO)) 
     return new_preds
 
 
@@ -70,6 +70,7 @@ def make_scene_renderings(objects, cameras, urdf_ds_name, distance=1.5, theta=np
 
     if use_nms3d:
         objects = nms3d(objects, poses_attr='TWO', th=0.04)
+        objects.poses = objects.TWO
     objects = objects.cpu()
     objects.TWO = objects.poses
 

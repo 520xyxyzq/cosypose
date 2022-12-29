@@ -169,15 +169,35 @@ def main():
         logger.info(f'Wrote predicted scene (objects+cameras): {predicted_scene_path}')
         logger.info(f'Wrote predicted objects with pose expressed in camera frame: {scene_reprojected_path}')
 
-        # if args.no_visualization:
-        #     logger.info('Skipping visualization.')
-        #     continue
+        if args.no_visualization:
+            logger.info('Skipping visualization.')
+            continue
 
         # if not (scenario_dir / 'urdfs').exists():
         #     logger.info('Skipping visualization (URDFS not provided).')
         #     continue
 
-        # logger.info('Generating visualization ...')
+        logger.info('Generating visualization ...')
+
+        from collections import defaultdict
+        import imageio
+
+        fps = 25
+        duration = 10
+        n_images = fps * duration
+        # n_images = 1  # Uncomment this if you just want to look at one image, generating the gif takes some time
+        images = make_scene_renderings(
+            objects_, cameras_, urdf_ds_name='ycbv', 
+            distance=1.3, object_scale=2.0,
+            show_cameras=False, camera_color=(0, 0, 0, 1),
+            theta=np.pi/4, resolution=(640, 480),
+            object_id_ref=0, 
+            colormap_rgb=defaultdict(lambda: [1, 1, 1, 1]), # TODO: mk this work for other ds
+            angles=np.linspace(0, 2*np.pi, n_images)
+        )
+        imageio.mimsave(
+            f"{view_group_dir}/{view_group}.gif", images, fps=fps
+        )
 
 
 if __name__ == '__main__':
