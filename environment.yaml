@@ -39,7 +39,7 @@ dependencies:
       - xarray==0.14.1
       - pyarrow
       - matplotlib
-      - bokeh
+      - bokeh==2.4.3
       - plyfile
       - trimesh
       - pycollada

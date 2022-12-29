@@ -14,7 +14,7 @@ RCLONE_ROOT = 'cosypose:'
 DOWNLOAD_DIR = LOCAL_DATA_DIR / 'downloads'
 DOWNLOAD_DIR.mkdir(exist_ok=True)
 
-BOP_SRC = 'http://ptak.felk.cvut.cz/6DB/public/bop_datasets/'
+BOP_SRC = 'http://bop.felk.cvut.cz/media/data/bop_datasets/'
 BOP_DATASETS = {
     'ycbv': {
         'splits': ['train_real', 'train_synt', 'test_all']
