@@ -127,7 +127,7 @@ class BackgroundAugmentation:
 
 class VOCBackgroundAugmentation(BackgroundAugmentation):
     def __init__(self, voc_root, p=0.3):
-        image_dataset = ImageFolder(voc_root)
+        image_dataset = ImageFolder(voc_root, is_valid_file=lambda x:x[-3:]=="jpg")
         super().__init__(image_dataset=image_dataset, p=p)
 
     def get_bg_image(self, idx):
