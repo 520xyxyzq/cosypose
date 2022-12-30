@@ -199,6 +199,30 @@ def main():
             f"{view_group_dir}/{view_group}.gif", images, fps=fps
         )
 
+        # Calculate and print pose prediction errors
+        from cosypose.scripts.calc_pose_error import err_calc_simple
+
+        estimates = inout.load_bop_results(str(scene_reprojected_path))
+        scene_gt = inout.load_scene_gt(str(scenario_dir) + "/scene_gt.json")
+        errs = err_calc_simple(estimates, scene_gt)
+        obj_ids = set([e["obj_id"] for e in errs])
+        errs_object = {}
+        print("Median pose errors:")
+        for obj_id in obj_ids:
+            # TODO: adapt this to work for duplicate (physical) objects
+            # We only take first instance's pose error ie. e["errors"][0]
+            err_obj = [e["errors"][0] for e in errs if e["obj_id"]==obj_id]
+            errs_object[obj_id] = err_obj
+            err_obj_med = np.median(np.array(err_obj), axis=0)
+            print(
+                f"Obj {obj_id}: " +
+                f"R_err (deg): {err_obj_med[0]}, t_err (cm): {err_obj_med[1]}"
+            )
+        # Save pose errors
+        errs_sorted = sorted(errs, key=lambda x: x["obj_id"])
+        with open(f"{view_group_dir}/errors.json", "w+") as fp:
+            json.dump(errs_sorted, fp, indent=4, sort_keys=False)
+
 
 if __name__ == '__main__':
     main()
