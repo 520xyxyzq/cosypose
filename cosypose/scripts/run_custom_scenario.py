@@ -58,15 +58,41 @@ def read_csv_candidates(csv_path):
     return candidates
 
 
-def read_cameras(json_path, view_ids):
+def read_cameras(json_path, view_ids, read_pose=False):
+    '''
+    Read camera info from json file(s)
+    @param json_path: [str] Path to the BOP-format scene_camera.json file
+    @param view_ids: [list] Indices for the camera views to read
+    @param read_pose: [bool] Whether to read the camera poses in json file
+    '''
     cameras = json.loads(Path(json_path).read_text())
     all_K = []
+    all_cam_pose = []
     for view_id in view_ids:
         cam_info = cameras[str(view_id)]
         K = np.array(cam_info['cam_K']).reshape(3, 3)
         all_K.append(K)
+        if read_pose:
+            rot = torch.tensor(cam_info['cam_R_w2c'])
+            trans = torch.tensor(cam_info['cam_t_w2c'])
+            pose = torch.eye(4).to(torch.float)
+            pose[:3, :3] = rot.reshape(3, 3).to(torch.float)
+            pose[:3, 3] = trans.reshape(3).to(torch.float) * 1e-3
+            pose = pose.inverse().unsqueeze(0) # w2c --> c2w
+            all_cam_pose.append(pose)
+
     K = torch.as_tensor(np.stack(all_K))
-    cameras = tc.PandasTensorCollection(K=K, infos=pd.DataFrame(dict(view_id=view_ids)))
+
+    if read_pose:
+        cam_poses = torch.cat(all_cam_pose, dim=0)
+        cameras = tc.PandasTensorCollection(
+            K=K, infos=pd.DataFrame(dict(view_id=view_ids)),
+            TWC=cam_poses
+        )
+    else:
+        cameras = tc.PandasTensorCollection(
+            K=K, infos=pd.DataFrame(dict(view_id=view_ids))
+        )
     return cameras
 
 
@@ -128,7 +154,9 @@ def main():
     n_views = len(view_ids)
     logger.info(f'Loaded {len(candidates)} candidates in {n_views} views.')
 
-    cameras = read_cameras(scenario_dir / 'scene_camera.json', view_ids).float().cuda()
+    cameras = read_cameras(
+        scenario_dir / 'scene_camera.json', view_ids, read_pose=True
+    ).float().cuda()
     cameras.infos['scene_id'] = scene_id
     cameras.infos['batch_im_id'] = np.arange(len(view_ids))
     logger.info(f'Loaded cameras intrinsics.')
@@ -138,13 +166,20 @@ def main():
     logger.info(f'Loaded {len(object_ds)} 3D object models.')
 
     logger.info('Running stage 2 and 3 of CosyPose...')
-    mv_predictor = MultiviewScenePredictor(mesh_db)
-    predictions = mv_predictor.predict_scene_state(candidates, cameras,
+    mv_predictor = MultiviewScenePredictor(
+        mesh_db, ba_aabb=True,
+        # NOTE: resample N mesh surface points for BA
+        # (using 8 Bbox verts for BA by default)
+        # ba_n_points=8
+    )
+    predictions = mv_predictor.predict_scene_state(
+        candidates, cameras,
                                                    score_th=args.sv_score_th,
-                                                   use_known_camera_poses=False,
+        use_known_camera_poses=False, # True to use pose in scene_camera.json
                                                    ransac_n_iter=args.ransac_n_iter,
                                                    ransac_dist_threshold=args.ransac_dist_threshold,
-                                                   ba_n_iter=args.ba_n_iter)
+        ba_n_iter=args.ba_n_iter
+    )
 
     objects = predictions['scene/objects']
     cameras = predictions['scene/cameras']
@@ -192,7 +227,8 @@ def main():
             show_cameras=False, camera_color=(0, 0, 0, 1),
             theta=np.pi/4, resolution=(640, 480),
             object_id_ref=0, 
-            colormap_rgb=defaultdict(lambda: [1, 1, 1, 1]), # TODO: mk this work for other ds
+            # TODO: make this work for other datasets, e.g. tless
+            colormap_rgb=defaultdict(lambda: [1, 1, 1, 1]), 
             angles=np.linspace(0, 2*np.pi, n_images)
         )
         imageio.mimsave(
