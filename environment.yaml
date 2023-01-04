@@ -4,12 +4,12 @@ channels:
    - conda-forge
    - pytorch
 dependencies:
-  - python
+  - python=3.8
   - pinocchio
   - assimp
-  - pytorch
-  - cudatoolkit=11.3
-  - torchvision
+  - pytorch=1.9.0=py3.8_cuda11.1_cudnn8.0.5_0
+  - torchvision=0.10.0=py38_cu111
+  - cudatoolkit=11.1
   - cudnn
   - rclone
   - gxx_linux-64
@@ -40,7 +40,7 @@ dependencies:
       - pyarrow
       - matplotlib
       - bokeh==2.4.3
-      - plyfile
+      - plyfile==0.7.4
       - trimesh
       - pycollada
       - shapely
