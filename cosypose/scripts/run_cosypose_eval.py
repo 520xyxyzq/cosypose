@@ -72,7 +72,7 @@ def load_posecnn_results():
         scene_id, view_id = int(scene_id), int(view_id)
         n_dets = result['rois'].shape[0]
         for n in range(n_dets):
-            obj_id = result['rois'][:, 1].astype(np.int)[n]
+            obj_id = result['rois'][:, 1].astype(int)[n]
             label = f'obj_{obj_id:06d}'
             infos.append(dict(
                 scene_id=scene_id,

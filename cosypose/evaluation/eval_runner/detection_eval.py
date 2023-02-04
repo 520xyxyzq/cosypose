@@ -43,8 +43,8 @@ class DetectionEvaluation:
 
     @staticmethod
     def make_empty_predictions():
-        infos = dict(view_id=np.empty(0, dtype=np.int),
-                     scene_id=np.empty(0, dtype=np.int),
+        infos = dict(view_id=np.empty(0, dtype=int),
+                     scene_id=np.empty(0, dtype=int),
                      label=np.empty(0, dtype=np.object),
                      score=np.empty(0, dtype=np.float))
         bboxes = torch.empty(0, 4, dtype=torch.float)

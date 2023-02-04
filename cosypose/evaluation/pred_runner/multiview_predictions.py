@@ -118,7 +118,7 @@ class MultiviewPredictionRunner:
                     keep_ids = np.concatenate(keep_ids)
                     batch_im_ids = np.concatenate(batch_im_ids)
                 detections_ = detections[keep_ids]
-                detections_.infos['batch_im_id'] = np.array(batch_im_ids).astype(np.int)
+                detections_.infos['batch_im_id'] = np.array(batch_im_ids).astype(int)
             else:
                 raise ValueError('No detections')
             detections_ = detections_.cuda().float()
