@@ -151,8 +151,8 @@ def mark_inliers(cand_inputs, cand_matched):
     inliers_infos = cand_matched.infos[['scene_id', 'view_id', 'label', 'cand_id']].copy()
     inliers_infos['is_inlier'] = True
     infos = cand_inputs.infos.merge(inliers_infos, on=['scene_id', 'view_id', 'label', 'cand_id'], how='left')
-    infos['is_inlier'] = infos['is_inlier'].astype(np.float)
-    infos.loc[~np.isfinite(infos.loc[:, 'is_inlier'].astype(np.float)), 'is_inlier'] = 0
+    infos['is_inlier'] = infos['is_inlier'].astype(float)
+    infos.loc[~np.isfinite(infos.loc[:, 'is_inlier'].astype(float)), 'is_inlier'] = 0
     infos['is_inlier'] = infos['is_inlier'].astype(np.bool)
     cand_inputs.infos = infos
     return cand_inputs
