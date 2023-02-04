@@ -89,7 +89,7 @@ class MultiviewScenePredictor:
                                           mesh_db=self.mesh_db_ba)
             ba_outputs = problem.solve(
                 n_iterations=ba_n_iter,
-                optimize_cameras=not use_known_camera_poses,
+                optimize_cameras=True#not use_known_camera_poses,
             )
             pred_objects_, pred_cameras_ = ba_outputs['objects'], ba_outputs['cameras']
             for x in (pred_objects_, pred_cameras_):
