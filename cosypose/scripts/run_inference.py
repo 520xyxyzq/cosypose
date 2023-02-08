@@ -3,6 +3,7 @@
 
 import argparse
 import glob
+import imageio
 import numpy as np
 import torch
 import yaml
@@ -27,7 +28,7 @@ from cosypose.integrated.pose_predictor import CoarseRefinePosePredictor
 from cosypose.training.detector_models_cfg import create_model_detector
 from cosypose.training.detector_models_cfg import check_update_config as check_update_config_detector
 from cosypose.integrated.detector import Detector
-
+from cosypose.utils.visual_utils import drawDetections
 # from cosypose.evaluation.pred_runner.bop_predictions import BopPredictionRunner
 
 # from cosypose.utils.distributed import get_tmp_dir, get_rank
@@ -155,19 +156,18 @@ def inference(
     CosyPose pose inference code
     @param detector: CosyPose detector
     @param pose_predictor: CosyPose CoarseRefine pose predictor
-    @param image ((Bx)HxWx3): Input RGB images
-    @param camera_k (3x3): Camera intrinsics
+    @param image ((Bx)3xHxW): Input RGB images
+    @param camera_k ((1x)3x3): Camera intrinsics
     @param detection_th (float): 2D object detection confidence threshold
     @param one_instance_per_class (bool): Only use higher-confidence detection
     """
-    assert image.shape[-1] == 3, "Error: Image must be shape ...3"
-    # [1,H,W,3]->[1,3,H,W]
-    images = torch.from_numpy(image).cuda().float()
+    images = image
     if len(images.shape) == 3:
         images = images.unsqueeze(0)
-    images = images.permute(0, 3, 1, 2) / 255
     # [1,3,3]
-    cameras_k = torch.from_numpy(camera_k).cuda().float().unsqueeze_(0)
+    cameras_k = camera_k.to(images.device)
+    if len(cameras_k.shape) == 2:
+        cameras_k = cameras_k.unsqueeze(0)
     # 2D object detection
     box_detections = detector.get_detections(
         images=images, one_instance_per_class=one_instance_per_class,
@@ -200,6 +200,10 @@ def main():
         "--train", "-t", type=str, default="real",
         help="Trained data type (real or pbr)"
     )
+    parser.add_argument(
+        "--plot", "-p", help="Viz the detections and poses? (run slower)",
+        action="store_true"
+    )
     args = parser.parse_args()
     model_ids = modelIds[args.data][args.train]
     detector,pose_predictor = getModel(*model_ids)
@@ -211,17 +215,28 @@ def main():
         glob.glob(f"{args.img_path}/*.jpg")
     )
     # Read intrinsics
-    K = np.eye(3)
+    K = torch.eye(3)
     K[0, 0], K[1, 1], K[0, 2], K[1, 2], K[0, 1] = args.K
-    # Inference
-    preds = []
-    for img_name in tqdm(img_names):
+    K = K.unsqueeze(0)
+    # Run inference
+    preds, imgs_ren = [], []
+    for img_ind, img_name in enumerate(tqdm(img_names)):
         img = Image.open(img_name)
         img = np.array(img)
+        img = torch.from_numpy(img).cuda().float().unsqueeze_(0)
+        img = img.permute(0, 3, 1, 2) / 255
         # predict
         pred = inference(detector, pose_predictor, img, K)
+        pred.infos["batch_im_id"] = [img_ind] * len(pred)
+        if args.plot:
+            img_ren = drawDetections(img, pred.cuda(), K)
+            imgs_ren.append(img_ren)
         preds.append(pred)
     preds = concatenate(preds)
+    if args.plot:
+        imageio.mimwrite(
+            f"~/Desktop/predictions.mp4", imgs_ren, fps=2, quality=8
+        )
 
     # poses,poses_input,K_crop,boxes_rend,boxes_crop
     # print("num of pred:",len(pred))
