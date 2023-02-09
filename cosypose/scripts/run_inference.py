@@ -36,6 +36,7 @@ from cosypose.utils.visual_utils import drawDetections
 from cosypose.utils.tensor_collection import concatenate
 
 from cosypose.config import EXP_DIR, RESULTS_DIR
+from .run_custom_scenario import tc_to_csv
 
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
@@ -226,7 +227,7 @@ def main():
     # Run inference
     # TODO: Change this to set image id
     view_ids = np.arange(len(img_names))
-    preds, imgs_ren = [], []
+    preds, imgs_to_viz = [], []
     for img_ind, img_name in enumerate(tqdm(img_names)):
         img = Image.open(img_name)
         img = np.array(img)
@@ -234,19 +235,22 @@ def main():
         img = img.permute(0, 3, 1, 2) / 255
         # predict
         pred = inference(detector, pose_predictor, img, K)
+        if pred is None:
+            img_no_pred = np.array(Image.open(img_name))
+            imgs_to_viz.append(img_no_pred)
+            continue
         pred.infos["batch_im_id"] = [img_ind] * len(pred)
         pred.infos["scene_id"] = [0] * len(pred)
         pred.infos["view_id"] = [view_ids[img_ind]] * len(pred)
         if args.plot:
             img_ren = drawDetections(img, pred.cuda(), K)
-            imgs_ren.append(img_ren)
+            imgs_to_viz.append(img_ren)
         preds.append(pred)
     preds = concatenate(preds)
     if args.plot:
         imageio.mimwrite(
-            f"~/Desktop/predictions.mp4", imgs_ren, fps=2, quality=8
+            f"~/Desktop/predictions.mp4", imgs_to_viz, fps=2, quality=8
         )
-    from .run_custom_scenario import tc_to_csv
     tc_to_csv(preds, args.out)
     # poses,poses_input,K_crop,boxes_rend,boxes_crop
     # print("num of pred:",len(pred))
