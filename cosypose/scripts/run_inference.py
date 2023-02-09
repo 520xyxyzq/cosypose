@@ -176,6 +176,7 @@ def inference(
     # 6D pose esitimition
     if len(box_detections) == 0:
         return None
+    # all_preds is preds at different refinement steps
     final_preds, all_preds = pose_predictor.get_predictions(
         images, cameras_k, detections=box_detections,
         n_coarse_iterations=1, n_refiner_iterations=4
@@ -204,6 +205,10 @@ def main():
         "--plot", "-p", help="Viz the detections and poses? (run slower)",
         action="store_true"
     )
+    parser.add_argument(
+        "--out", "-o", default="/home/ziqi/Desktop/candidates.csv",
+        help="File path to save the pose prediction results"
+    )
     args = parser.parse_args()
     model_ids = modelIds[args.data][args.train]
     detector,pose_predictor = getModel(*model_ids)
@@ -219,6 +224,8 @@ def main():
     K[0, 0], K[1, 1], K[0, 2], K[1, 2], K[0, 1] = args.K
     K = K.unsqueeze(0)
     # Run inference
+    # TODO: Change this to set image id
+    view_ids = np.arange(len(img_names))
     preds, imgs_ren = [], []
     for img_ind, img_name in enumerate(tqdm(img_names)):
         img = Image.open(img_name)
@@ -228,6 +235,8 @@ def main():
         # predict
         pred = inference(detector, pose_predictor, img, K)
         pred.infos["batch_im_id"] = [img_ind] * len(pred)
+        pred.infos["scene_id"] = [0] * len(pred)
+        pred.infos["view_id"] = [view_ids[img_ind]] * len(pred)
         if args.plot:
             img_ren = drawDetections(img, pred.cuda(), K)
             imgs_ren.append(img_ren)
@@ -237,7 +246,8 @@ def main():
         imageio.mimwrite(
             f"~/Desktop/predictions.mp4", imgs_ren, fps=2, quality=8
         )
-
+    from .run_custom_scenario import tc_to_csv
+    tc_to_csv(preds, args.out)
     # poses,poses_input,K_crop,boxes_rend,boxes_crop
     # print("num of pred:",len(pred))
     # for i in range(len(pred)):
