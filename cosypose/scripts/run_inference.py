@@ -236,8 +236,9 @@ def main():
         # predict
         pred = inference(detector, pose_predictor, img, K)
         if pred is None:
-            img_no_pred = np.array(Image.open(img_name))
-            imgs_to_viz.append(img_no_pred)
+            if args.plot:
+                img_no_pred = np.array(Image.open(img_name))
+                imgs_to_viz.append(img_no_pred)
             continue
         pred.infos["batch_im_id"] = [img_ind] * len(pred)
         pred.infos["scene_id"] = [0] * len(pred)
@@ -249,7 +250,7 @@ def main():
     preds = concatenate(preds)
     if args.plot:
         imageio.mimwrite(
-            f"~/Desktop/predictions.mp4", imgs_to_viz, fps=2, quality=8
+            f"{args.out}_video.mp4", imgs_to_viz, fps=2, quality=8
         )
     tc_to_csv(preds, args.out)
     # poses,poses_input,K_crop,boxes_rend,boxes_crop
