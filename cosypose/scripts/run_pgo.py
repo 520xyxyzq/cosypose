@@ -222,6 +222,21 @@ class GTSAMPGO:
             avg_obj_pose = self.avgPoses(obj_poses)
             self._init_.insert(O(oid), avg_obj_pose)
 
+    def sim3FactorFromSE3(self, key1, key2, pose, model):
+        """
+        Construct a Sim(3) edge from SE(3) measurement
+        @param key1(2): pose1(2) key
+        @param pose (gtsam.Pose3): SE3 measurement
+        @param model (gtsam.noiseModel): noise model
+        @return factor (gtsam.EssentialMatrixConstraint): Sim(3) factor
+        """
+        Rotation = pose.rotation()
+        Translation = pose.translation()
+        Direction = gtsam.Unit3(Translation)
+        E = gtsam.EssentialMatrix(Rotation, Direction)
+        factor = gtsam.EssentialMatrixConstraint(key1, key2, E, model)
+        return factor
+
     def addFactors(self, kernel="Cauchy"):
         """
         Add factors to pose graph
