@@ -8,6 +8,7 @@ import gtsam
 import imageio
 import json
 import numpy as np
+import os
 import pandas as pd
 import pypose as pp
 import torch
@@ -531,8 +532,23 @@ class GTSAMPGO:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '--scenario', default='', type=str,
+        '--scenario', default=None, type=str,
         help="scenario dir name, must match a folder in local_data/scenarios"
+    )
+    parser.add_argument(
+        "--pred", "-p", type=str, default=None,
+        help="JSON file containing object pose predictions"
+    )
+    parser.add_argument(
+        "--odom", "-c", type=str, default=None,
+        help="JSON file containing odometry"
+    )
+    parser.add_argument(
+        "--pred_gt", "-pg", type=str, default=None,
+        help="JSON file containing ground truth object pose predictions"
+    )
+    parser.add_argument(
+        "--out", "-o", type=str, default=None, help="Path to save output"
     )
     parser.add_argument(
         '--sv_score_th', default=0.3, type=float,
@@ -553,9 +569,30 @@ if __name__ == "__main__":
     parser.add_argument('--no_visualization', action='store_true')
     args = parser.parse_args()
 
+    if args.scenario is not None:
     scenario_dir = LOCAL_DATA_DIR / 'custom_scenarios' / args.scenario
+        pred_file = scenario_dir / 'candidates.csv'
+        odom_file = scenario_dir / 'scene_camera.json'
+        out_dir = scenario_dir / 'results'
+        if os.path.isfile(f"{scenario_dir}/scene_gt.json"):
+            pred_gt_file = f"{scenario_dir}/scene_gt.json"
+        else:
+            pred_gt_file = None
+    elif args.pred is not None and args.odom is not None:
+        assert os.path.isfile(args.pred), f"Error: {args.pred} not a file"
+        assert os.path.isfile(args.odom), f"Error: {args.odom} not a file"
+        assert os.path.isdir(args.out), f"Error: {args.out} not a path"
+        pred_file, odom_file, out_dir = args.pred, args.odom, args.out
+        if args.pred_gt is not None:
+            assert os.path.isfile(args.pred_gt), \
+                f"Error: {args.pred_gt} not a file"
+            pred_gt_file = args.pred_gt
+        else:
+            pred_gt_file = None
+    else:
+        raise ValueError("Check whether the pred and odom file exist")
 
-    candidates = read_csv_candidates(scenario_dir / 'candidates.csv')
+    candidates = read_csv_candidates(pred_file)
     candidates = candidates.float().cuda()
     candidates.infos['group_id'] = 0
     scene_ids = np.unique(candidates.infos['scene_id'])
@@ -566,9 +603,7 @@ if __name__ == "__main__":
     n_views = len(view_ids)
     print(f'Loaded {len(candidates)} candidates in {n_views} views.')
 
-    cameras = read_cameras(
-        scenario_dir / 'scene_camera.json', view_ids, read_pose=True
-    ).float().cuda()
+    cameras = read_cameras(odom_file, view_ids, read_pose=True).float().cuda()
     cameras.infos['scene_id'] = scene_id
     cameras.infos['batch_im_id'] = np.arange(len(view_ids))
     print(f'Loaded cameras intrinsics.')
@@ -592,8 +627,7 @@ if __name__ == "__main__":
     objects_, cameras_, reproj_ = gtsam_pgo.valuesToPandasTensorCollection(
         gtsam_pgo._result_, decision
     )
-    tc_to_csv(reproj_, f"{scenario_dir}/results/reproj.csv")
-    print(objects_)
+    tc_to_csv(reproj_, f"{out_dir}/reproj.csv")
 
     fps = 25
     duration = 10
@@ -608,13 +642,13 @@ if __name__ == "__main__":
         colormap_rgb=defaultdict(lambda: [1, 1, 1, 1]),
         angles=np.linspace(0, 2*np.pi, n_images)
     )
-    imageio.mimsave(f"{scenario_dir}/results/res.gif", images, fps=fps)
+    imageio.mimsave(f"{out_dir}/res.gif", images, fps=fps)
 
     # Calculate and print pose prediction errors
     from cosypose.scripts.calc_pose_error import err_calc_simple
-
-    estimates = inout.load_bop_results(f"{scenario_dir}/results/reproj.csv")
-    scene_gt = inout.load_scene_gt(f"{scenario_dir}/scene_gt.json")
+    if pred_gt_file is not None:
+        estimates = inout.load_bop_results(f"{out_dir}/reproj.csv")
+        scene_gt = inout.load_scene_gt(f"{pred_gt_file}")
     errs = err_calc_simple(estimates, scene_gt)
     obj_ids = set([e["obj_id"] for e in errs])
     errs_object = {}
@@ -631,5 +665,5 @@ if __name__ == "__main__":
         )
     # Save pose errors
     errs_sorted = sorted(errs, key=lambda x: x["obj_id"])
-    with open(f"{scenario_dir}/results/error.json", "w+") as fp:
+        with open(f"{out_dir}/error.json", "w+") as fp:
         json.dump(errs_sorted, fp, indent=4, sort_keys=False)
