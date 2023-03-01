@@ -202,7 +202,8 @@ class GTSAMPGO:
         # Initialize camera and object pose variables
         self.initVariables()
         # Add factors to PGO
-        self.addFactors(kernel="Cauchy")
+        self.addOdomFactors()
+        self.addPredFactors(kernel="Cauchy")
 
     def initVariables(self):
         """
@@ -237,16 +238,18 @@ class GTSAMPGO:
         factor = gtsam.EssentialMatrixConstraint(key1, key2, E, model)
         return factor
 
-    def addFactors(self, kernel="Cauchy"):
+    def addOdomFactors(self, std=0.01, sim3=False):
         """
-        Add factors to pose graph
-        @param kernel (str): Robust kernel used for object pose pred factors
-        TODO: add support for L2 cost function
+        Add odometry factors to pose graph
+        @param std (float): STD for isotropic odometry noise model
+        @param sim3 (bool): Add Sim3 or SE3 odom factor
         """
         # Add camera pose prior and odometry factors
+        # TODO: deal with floating pose predictions
         for cid, cam_pose in enumerate(self.TWC):
             cam_pose_gtsam = gtsam.Pose3(cam_pose.cpu())
             if cid == 0:
+                # Prior factor on the first camera pose
                 self._fg_.add(
                     gtsam.PriorFactorPose3(
                         C(cid), gtsam.Pose3(cam_pose_gtsam),
@@ -254,17 +257,34 @@ class GTSAMPGO:
                     )
                 )
             else:
+                # Between factor on consecutive camera poses
+                # TODO: deal with near-identical consecutive poses
                 rel_pose = prev_cam_pose.inverse().compose(cam_pose_gtsam)
+                if sim3:
+                    self._fg_.add(
+                    self.sim3FactorFromSE3(
+                            C(cid - 1), C(cid), rel_pose,
+                            gtsam.noiseModel.Isotropic.Sigma(6, std)
+                        )                        
+                    )
+                else:
                 self._fg_.add(
                     gtsam.BetweenFactorPose3(
                         C(cid - 1), C(cid), rel_pose,
-                        gtsam.noiseModel.Isotropic.Sigma(6, 0.01)
+                            gtsam.noiseModel.Isotropic.Sigma(6, std)
                     )
                 )
             prev_cam_pose = cam_pose_gtsam
+
+    def addPredFactors(self, std=0.05, kernel="Cauchy"):
+        """
+        Add object pose prediction factors to pose graph
+        @param std (float / list): STD value for object pose prediction noise
+        @param kernel (str): Robust kernel used for object pose pred factors
+        TODO: add support for L2 cost function
+        """
         # Add pose prediction factors
-        # TODO: find a way to specify the noise model
-        noise_model = gtsam.noiseModel.Isotropic.Sigma(6, 0.05)
+        noise_model = gtsam.noiseModel.Isotropic.Sigma(6, std)
         robust = self.robustFunction(kernel)
         robust_nm = gtsam.noiseModel.Robust(robust, noise_model)
         for (cid, oid), pred in self._co_TCO_map_.items():
