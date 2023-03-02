@@ -190,7 +190,7 @@ class GTSAMPGO:
         self.n_candidates = len(self.cand_TCO)
         # HashMap (Obj ID, View ID) : Obj-to-cam pose preds
         self._co_TCO_map_ = {
-            (c, o): TCO for (c, o, TCO) in zip(
+            (c, o): gtsam.Pose3(TCO.cpu()) for (c, o, TCO) in zip(
                 self.cand_view_indices[::-1],  # Iterate in reversed order
                 self.cand_obj_indices[::-1],  # to only remember the higher
                 self.cand_TCO.flip(dims=(0,))  # confidence predictions
@@ -200,30 +200,33 @@ class GTSAMPGO:
         self._detected_ = defaultdict(list)
         for cid, oid in zip(self.cand_view_indices, self.cand_obj_indices):
             self._detected_[cid].append(oid)
-        
         # self.residuals_ids = self.make_residuals_ids()
 
         # Build pose graph
         self._fg_ = gtsam.NonlinearFactorGraph()
         self._init_ = gtsam.Values()
+        # Preprocess camera odom
+        self.preprocessOdom()
         # Initialize camera and object pose variables
         self.initVariables()
         # Add factors to PGO
         self.addOdomFactors(sim3=True)
         self.addPredFactors(kernel="Cauchy")
 
+    def initScale(self):
+        pass
+
     def initVariables(self):
         """
         Initialize object landmark variable and camera pose variables in PGO
         """
         # Init camera pose variables
-        for cid, cam_pose in enumerate(self.TWC):
-            cam_pose = gtsam.Pose3(cam_pose.cpu())
+        for cid, cam_pose in enumerate(self._odom_):
             self._init_.insert(C(cid), cam_pose)        
         # Init object pose variables
         TO_init = defaultdict(list)
-        for (cid, oid), TCO in self._co_TCO_map_.items():
-            obj_pose = gtsam.Pose3((self.TWC[cid] @ TCO).cpu())
+        for (cid, oid), pred in self._co_TCO_map_.items():
+            obj_pose = self._odom_[cid] * pred
             TO_init[oid].append(obj_pose)
         # Initialize object pose as average pose predictions
         for oid, obj_poses in TO_init.items():
@@ -233,7 +236,7 @@ class GTSAMPGO:
     def sim3FactorFromSE3(self, key1, key2, pose, model):
         """
         Construct a Sim(3) edge from SE(3) measurement
-        @param key1(2): pose1(2) key
+        @param key1(2) (gtsam.Symbol): pose1(2) key
         @param pose (gtsam.Pose3): SE3 measurement
         @param model (gtsam.noiseModel): noise model
         @return factor (gtsam.EssentialMatrixConstraint): Sim(3) factor
@@ -245,14 +248,40 @@ class GTSAMPGO:
         factor = gtsam.EssentialMatrixConstraint(key1, key2, E, model)
         return factor
 
+    def preprocessOdom(self, tolerance=1e-3):
+        """
+        Preprocess odom to deal w/ near-identical poses and floating cameras
+        @param tolerance (float): Tol. to determine if poses are identical
+        """
+        # NOTE: If current pose == prev pose
+        # interpolate between prev pose and next non-identical pose
+        # to update the poses between prev pose and the non-identical
+        for cid, cam_pose in enumerate(self._odom_):
+            if cid == 0:
+                prev_cam_pose = cam_pose
+                continue
+            if prev_cam_pose.equals(cam_pose, tolerance):
+                # Find the next non-identical pose
+                num_identical = 0
+                for cam_pose_beyond in self._odom_[cid:]:
+                    num_identical += 1
+                    if not prev_cam_pose.equals(cam_pose_beyond, tolerance):
+                        break
+                # Interpolate between prev pose and next non-identical pose
+                # TODO: extrapolate if identical poses at end of the sequence
+                for ii in range(num_identical-1):
+                    self._odom_[cid + ii] = prev_cam_pose.slerp(
+                        (ii + 1)/num_identical, cam_pose_beyond
+                    )
+            prev_cam_pose = cam_pose
+        # TODO: deal with floating pose predictions
+
     def addOdomFactors(self, std=0.01, sim3=False):
         """
         Add odometry factors to pose graph
         @param std (float): STD for isotropic odometry noise model
         @param sim3 (bool): Add Sim3 or SE3 odom factor
         """
-        # TODO: deal with floating pose predictions
-
         # Add camera pose prior and odometry factors
         for cid, cam_pose in enumerate(self._odom_):
             if cid == 0:
@@ -265,24 +294,6 @@ class GTSAMPGO:
                 )
             else:
                 # Between factor on consecutive camera poses
-                # NOTE: If current pose == prev pose
-                # interpolate between prev pose and next non-identical pose
-                # to update the poses between prev pose and the non-identical
-                if prev_cam_pose.equals(cam_pose, 1e-3):
-                    num_identical = 0
-                    # Find the next non-identical pose
-                    for cam_pose_after in self._odom_[cid:]:
-                        num_identical += 1
-                        if not prev_cam_pose.equals(cam_pose_after, 1e-3):
-                            break
-                    # Interpolate between prev pose and next non-identical pose
-                    for ii in range(num_identical-1):
-                        self._odom_[cid + ii] = prev_cam_pose.slerp(
-                            (ii + 1)/num_identical, cam_pose_after
-                        )
-                    rel_pose = \
-                        prev_cam_pose.inverse().compose(self._odom_[cid])
-                else:
                     rel_pose = prev_cam_pose.inverse().compose(cam_pose)
                 # If pose-pose constraint is up to scale
                 if sim3:
@@ -315,7 +326,7 @@ class GTSAMPGO:
         for (cid, oid), pred in self._co_TCO_map_.items():
             self._fg_.add(
                 gtsam.BetweenFactorPose3(
-                    C(cid), O(oid), gtsam.Pose3(pred.cpu()), robust_nm
+                    C(cid), O(oid), pred, robust_nm
                 )
             )
 
