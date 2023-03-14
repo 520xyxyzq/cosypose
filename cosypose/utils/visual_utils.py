@@ -65,6 +65,7 @@ def drawDetections(
         image = image.byte()
     if hasattr(detections, "poses"):
         poses = detections.poses.to(image.device)
+        poses = poses[keep, ...]
         assert intrinsics is not None, "Error: need intrinsics to render pose"
         # To make the occlusion relation right, sort poses and labels by depth
         depths = poses[:, 2, -1]
