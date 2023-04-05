@@ -7,6 +7,7 @@ import imageio
 import numpy as np
 import torch
 import yaml
+import pandas as pd
 from copy import deepcopy
 from enum import IntEnum
 from pathlib import Path
@@ -182,7 +183,46 @@ def inference(
         images, cameras_k, detections=box_detections,
         n_coarse_iterations=1, n_refiner_iterations=4
     )
-    return final_preds.cpu()
+
+def predict(pose_predictor, image, camera_k, TCO_init,
+            n_coarse_iterations=1, n_refiner_iterations=1):
+    """
+    Predict object poses based on initial guesses
+    NOTE: only support single images for now
+    @param pose_predictor (CoarseRefine): Coarse + Refiner pose predictor
+    @param image ((Bx)3xHxW): Input RGB image
+    @param camera_k ((1x)3x3): Camera intrinsics
+    @param TCO_init (dict or PandasTensorCollection): Initial pose estimates
+    @param n_coarse_iterations (int): Number of coarse pred iterations
+    @param n_refiner_iterations (int): Number of refiner pred iterations
+    """
+    if len(image.shape) == 3:
+        image = image.unsqueeze(0) # [1,3,3]
+    camera_k = camera_k.to(image.device)
+    if len(camera_k.shape) == 2:
+        camera_k = camera_k.unsqueeze(0)
+    if type(TCO_init) is dict:
+        labels = list(TCO_init.keys())
+        poses  = torch.stack(list(TCO_init.values()), dim=0)
+        TCO_init = PandasTensorCollection(
+            poses = poses.to(image.device),
+            infos=pd.DataFrame(dict(batch_im_id=[0]*len(labels), label=labels))
+        )
+    elif type(TCO_init) is PandasTensorCollection:
+        TCO_init.poses = TCO_init.poses.to(image.device)
+    else:
+        raise ValueError(f"{type(TCO_init)} is not supported!")
+    coarse_preds = pose_predictor.batched_model_predictions(
+        pose_predictor.coarse_model, image, camera_k, TCO_init, 
+        n_iterations=n_coarse_iterations
+    )
+    data_TCO = coarse_preds[f'iteration={n_coarse_iterations}']
+    refiner_preds = pose_predictor.batched_model_predictions(
+        pose_predictor.refiner_model, image, camera_k, data_TCO,
+        n_iterations=n_refiner_iterations
+    )
+    data_TCO = refiner_preds[f'iteration={n_refiner_iterations}']
+    return data_TCO
 
 
 def main():
@@ -226,7 +266,7 @@ def main():
     K = K.unsqueeze(0)
     # Run inference
     # TODO: Change this to set image id
-    view_ids = np.arange(len(img_names))
+    view_ids = np.arange(1, len(img_names) + 1)
     preds, imgs_to_viz = [], []
     for img_ind, img_name in enumerate(tqdm(img_names)):
         img = Image.open(img_name)
@@ -253,14 +293,27 @@ def main():
             f"{args.out}_video.mp4", imgs_to_viz, fps=2, quality=8
         )
     tc_to_csv(preds, args.out)
-    # poses,poses_input,K_crop,boxes_rend,boxes_crop
-    # print("num of pred:",len(pred))
-    # for i in range(len(pred)):
-    #     print(
-    #         "object ",i,":", pred.infos.iloc[i].label,
-    #         "------\n pose:", pred.poses[i].numpy(),
-    #         "\n detection score:", pred.infos.iloc[i].score
-    #     )
+
+    # Refine
+    obj_preds = read_csv_candidates(args.out)
+    obj_preds.infos['batch_im_id'] = 0
+    preds = []
+    for img_ind, img_name in enumerate(tqdm(img_names)):
+        img = Image.open(img_name)
+        img = np.array(img)
+        img = torch.from_numpy(img).cuda().float().unsqueeze_(0)
+        img = img.permute(0, 3, 1, 2) / 255
+        # Get the predictions on image indexed img_ind 
+        keep = np.where(obj_preds.infos['view_id'] == img_ind + 1)[0]
+        obj_preds_frame = obj_preds[keep]
+        # predict
+        pred = predict(pose_predictor, img, K, obj_preds_frame, 4, 4)
+        pred.infos["batch_im_id"] = [img_ind] * len(pred)
+        pred.infos["scene_id"] = [0] * len(pred)
+        pred.infos["view_id"] = [view_ids[img_ind]] * len(pred)
+        preds.append(pred)
+    preds = concatenate(preds)
+    tc_to_csv(preds, args.out)
 
 
 if __name__ == '__main__':
