@@ -228,7 +228,7 @@ def predict(pose_predictor, image, camera_k, TCO_init,
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--img_path", "-i", type=str, default="Path to the target image folder"
+        "--img_path", "-i", type=str, help="Path to the target image folder"
     )
     parser.add_argument(
         "--K", "-K", help="Camera intrinsics: fx, fy, cx, cy, s", nargs=5,
