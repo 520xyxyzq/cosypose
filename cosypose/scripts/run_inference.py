@@ -6,6 +6,7 @@ import glob
 import imageio
 import numpy as np
 import torch
+import json
 import yaml
 import pandas as pd
 from copy import deepcopy
@@ -13,6 +14,7 @@ from enum import IntEnum
 from pathlib import Path
 from PIL import Image
 from tqdm import tqdm
+from itertools import groupby
 
 from cosypose.datasets.datasets_cfg import make_scene_dataset, make_object_dataset
 
