@@ -316,13 +316,17 @@ def main():
     # Run inference
     # TODO: Change this to set image id
     view_ids = np.arange(1, len(img_names) + 1)
-    preds, imgs_to_viz = [], []
+    preds, detections, imgs_to_viz = [], [], []
     for img_ind, img_name in enumerate(tqdm(img_names)):
         img = Image.open(img_name)
         img = np.array(img)
         img = torch.from_numpy(img).cuda().float().unsqueeze_(0)
         img = img.permute(0, 3, 1, 2) / 255
         # predict
+        detection = detector.get_detections(
+            images=img, one_instance_per_class=False,
+            detection_th=0, output_masks=True
+        )
         pred = inference(detector, pose_predictor, img, K)
         if pred is None:
             if args.plot:
@@ -332,17 +336,22 @@ def main():
         pred.infos["batch_im_id"] = [img_ind] * len(pred)
         pred.infos["scene_id"] = [0] * len(pred)
         pred.infos["view_id"] = [view_ids[img_ind]] * len(pred)
+        detection.infos["batch_im_id"] = [img_ind] * len(detection)
+        detection.infos["scene_id"] = [0] * len(detection)
+        detection.infos["view_id"] = [view_ids[img_ind]] * len(detection)
         if args.plot:
             img_ren = drawDetections(img, pred.cuda(), K)
             imgs_to_viz.append(img_ren)
         preds.append(pred)
+        detections.append(detection)
     preds = concatenate(preds)
+    detections = concatenate(detections)
     if args.plot:
         imageio.mimwrite(
             f"{args.out}_video.mp4", imgs_to_viz, fps=2, quality=8
         )
     tc_to_csv(preds, args.out)
-
+    saveCocoDetections(detections, args.out.replace(".csv", ".json"))
     # Refine
     obj_preds = read_csv_candidates(args.out)
     obj_preds.infos['batch_im_id'] = 0
