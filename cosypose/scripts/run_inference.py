@@ -152,6 +152,53 @@ def getModel(detector_id, coarse_id, refiner_id):
     return detector, pose_predictor
 
 
+def binary_mask_to_rle(binary_mask):
+    """
+    Converts a binary mask to COCOs run-length encoding (RLE) format.
+    Instead of outputting a mask image,
+    you give a list of start pixels and how many pixels after each of those
+    starts are included in the mask.
+
+    :param binary_mask: a 2D binary numpy array where '1's represent the object
+    :return: Mask in RLE format
+    """
+    rle = {'counts': [], 'size': list(binary_mask.shape)}
+    counts = rle.get('counts')
+    for i, (value, elements) in enumerate(
+            groupby(binary_mask.ravel(order='F'))):
+        if i == 0 and value == 1:
+            counts.append(0)
+        counts.append(len(list(elements)))
+    return rle
+
+
+def saveCocoDetections(dets, json_file):
+    """
+    Save 2D detections to COCO-format file
+    @param dets (PandasTensorCollect): 2D Bboxes + 2D Segmentations + labels
+    @param json_file (str): Path to save the detection json file
+    """
+    assert len(dets) > 0, "Error: no detections to save"
+    dets_lst = []
+    for n in range(len(dets)):
+        det = dets.infos.iloc[n]
+        bbox = dets.bboxes[n].tolist()
+        bbox = [bbox[0], bbox[1], bbox[2] - bbox[0], bbox[3] - bbox[1]]
+        mask = dets.masks[n].cpu().numpy()
+        mask_rle = binary_mask_to_rle(mask)
+        det_dict = dict(
+            bbox=bbox, category_id=int(det.label.split('_')[-1]),
+            image_id=int(det.batch_im_id), scene_id=0, score=det.score,
+            segmentation=mask_rle, time=1.0
+        )
+        dets_lst.append(det_dict)
+    with open(json_file, "w+") as fp:
+        fp.write("[\n")
+        fp.writelines('  ' + json.dumps(dic) + ',\n' for dic in dets_lst[:-1])
+        fp.write('  ' + json.dumps(dets_lst[-1]) + "\n")
+        fp.write("]")
+
+
 def inference(
     detector, pose_predictor, image, camera_k, detection_th=0.3,
     one_instance_per_class=False
